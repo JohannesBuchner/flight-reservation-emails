@@ -16,11 +16,10 @@ Usage
 	Here we support the notmuch database (https://notmuchmail.org/)
 	It is trivial to include maildir emails into notmuch with "notmuch new".
 
-	For email programs with mailbox, mb2md (http://batleth.sapienti-sat.org/projects/mb2md/) can be run to convert to maildir::
-
-		$ perl mb2md-3.20.pl -s $HOME/.thunderbird/..../Mail/Local\ Folders/Inbox -d MyMailMD/
-
-	and then "notmuch new" be run onto the MyMailMD
+	For email programs with mailbox, mb2md (http://batleth.sapienti-sat.org/projects/mb2md/) can be run to convert to maildir, followed by "notmuch new"
+	
+	For Thunderbird, the thunderbird-notmuch-import.py script is provided,
+	which finds the relevant folders automatically.
 
 2. Building the report
 
