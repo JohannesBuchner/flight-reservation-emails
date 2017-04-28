@@ -29,6 +29,20 @@ Usage
 		$ python summary.py
 
 
+Features implemented
+----------------------
+
+Parsing of the flight reservations schema following 
+https://developers.google.com/gmail/markup/reference/flight-reservation
+
+
+To Do
+------------
+
+* Not all eticket emails follow this schema. Google uses machine learning to parse more emails. Some simple parsing to handle more emails would be nice. Contributions welcome!
+* implement hotel bookings (https://developers.google.com/gmail/markup/reference/hotel-reservation). Booking.com and some others produce the json version.
+
+
 
 
 
