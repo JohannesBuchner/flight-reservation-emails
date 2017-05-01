@@ -2,9 +2,8 @@ import notmuch
 import BeautifulSoup
 import datetime
 import dateutil.parser
+import emailparser
 from tzlocal import get_localzone
-#import xml
-#import xml.etree.ElementTree
 
 def get_value(reservation, element, itemprop, default):
 	node = reservation.find(element, itemprop=itemprop)
@@ -35,45 +34,7 @@ query = db.create_query('schema.org/FlightReservation')
 all_reservations = []
 
 for m in query.search_messages():
-	for mp in m.get_message_parts():
-		if mp.get_content_type() != 'text/html':
-			continue
-		t = mp.get_payload(decode=True)
-		if 'schema.org' not in t: 
-			continue
-		b = BeautifulSoup.BeautifulSoup(t)
-		for fr in b.findAll('div', itemtype="http://schema.org/FlightReservation"):
-			fl = fr.find('div', itemprop="reservationFor", itemtype="http://schema.org/Flight")
-			info = dict(
-				reservationNumber = get_value(fr, 'meta', "reservationNumber", ''),
-				checkinUrl = get_value(fr, 'link', "checkinUrl", ''),
-				ticketNumber = get_value(fr, 'meta', "ticketNumber", ''),
-				ticketDownload = get_value(fr, 'link', "ticketDownloadUrl", ''),
-				ticketPrint = get_value(fr, 'link', "ticketPrintUrl", ''),
-				ticketText = get_value(fr, 'meta', "additionalTicketText", ''),
-				airplaneSeat = get_value(fr, 'meta', "airplaneSeat", ''),
-				boardingGroup = get_value(fr, 'meta', "boardingGroup", ''),
-				flightNumber = get_value(fl, 'meta', 'flightNumber', ''),
-				airline = get_name(fl, 'airline', 'http://schema.org/Airline', ''),
-				operator = get_name(fl, 'operatedBy', 'http://schema.org/Airline', ''),
-				departure = get_code(fl, 'departureAirport', 'http://schema.org/Airport', ''),
-				boardingTime = get_value(fl, 'meta', 'boardingTime', ''),
-				departureTime = get_value(fl, 'meta', 'departureTime', ''),
-				departureGate = get_value(fl, 'meta', 'departureGate', ''),
-				departureTerminal = get_value(fl, 'meta', 'departureTerminal', ''),
-				arrival = get_code(fl, 'arrivalAirport', 'http://schema.org/Airport', ''),
-				arrivalTime = get_value(fl, 'meta', 'arrivalTime', ''),
-				arrivalGate = get_value(fl, 'meta', 'arrivalGate', ''),
-				arrivalTerminal = get_value(fl, 'meta', 'arrivalTerminal', '')
-			)
-			if info['departureTime'] == '':
-				print 'skipping', info
-				print
-				continue
-			# add email subject and date
-			info['emailTime'] = datetime.datetime.fromtimestamp(m.get_date())
-			info['emailSubject'] = m.get_header('Subject')
-			all_reservations.append(info)
+	all_reservations += emailparser.parse_email_message(m)
 
 def dateConverter(dateText):
 	day = dateutil.parser.parse(dateText)
@@ -110,7 +71,7 @@ for info in all_reservations:
 
 Departing %(departureTime)s %(boardingTime)s
 from %(departure)s %(departureTerminal)s %(departureGate)s
-arriving %(departureTime)s
+arriving %(arrivalTime)s
 To   %(arrival)s %(arrivalTerminal)s %(arrivalGate)s
 Flight number %(flightNumber)s with %(airline)s%(operator)s
 %(ticketNumber)s %(ticketText)s %(ticketDownload)s %(ticketPrint)s
