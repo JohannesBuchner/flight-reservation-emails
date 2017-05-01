@@ -35,16 +35,21 @@ def prepend(info, k, prefix):
 		info[k] = prefix + info[k]
 
 from six.moves.html_parser import HTMLParser
+h = HTMLParser()
+
+def nicefy_htmltext(txt):
+	el = h.unescape(txt.strip())
+	el = el.replace('\n', ' ').replace('\t', ' ').replace('    ', ' ').replace('  ', ' ').replace('  ', ' ').strip()
+	return el
 
 def parse_field(v):
 	# split td field into components
-	h = HTMLParser()
 	vs = []
 	#for el in list(v) + list(v.findChildren()):
 	for el in list(v.recursiveChildGenerator()) + list(v):
 		if hasattr(el, 'text'):
 			el = el.text
-		el = h.unescape(el.strip())
+		el = nicefy_htmltext(el)
 		if '<' in el or '>' in el: 
 			continue
 		if len(el) != 0 and len(el) < 200:
@@ -52,7 +57,8 @@ def parse_field(v):
 	return vs
 
 def shorten_airport(name):
-	if len(name) < 8: 
+	name = nicefy_htmltext(name)
+	if len(name) < 8:
 		return name
 	if '(' not in name:
 		return name
@@ -71,19 +77,18 @@ def parsedate(s, default=None):
 		if default is None:
 			return dateutil.parser.parse(s)
 		else:
-			return dateutil.parser.parse(s, default=default)
+			return dateutil.parser.parse(s, default=default.replace(second=0, minute=0, hour=0))
 	except ValueError as e:
-		if any([n in s for n in '0123456789']) and len(s) > 4:
-			if default is None:
-				r = dateparser.parse(s)
-			else:
-				r = dateparser.parse(s, settings=dateparser.conf.Settings().replace(RELATIVE_BASE=default))
-			if r is None:
-				raise e
-			else:
-				return r
+		if default is None:
+			r = dateparser.parse(s)
 		else:
+			r = dateparser.parse(s, settings=
+				dateparser.conf.Settings().replace(
+				RELATIVE_BASE=default.replace(second=0, minute=0, hour=0)))
+		if r is None:
 			raise e
+		else:
+			return r
 
 previous_dates = {}
 
@@ -91,6 +96,10 @@ def parsedate_cached(s, default=None):
 	s = s.replace('\n', ' ').replace('\t', ' ').replace('      ', ' ').replace('  ', ' ').replace('  ', ' ')
 	if len(s) > 50:
 		raise ValueError('too long for a date')
+	if len(s) < 4:
+		raise ValueError('too short for a date')
+	if not any([n in s for n in '0123456789']):
+		raise ValueError('numbers expected in a date')
 	k = (s, default)
 	if k not in previous_dates:
 		try:
@@ -109,9 +118,10 @@ def parse_flight(columns, values, global_info):
 	logf = logging.getLogger('emailparser.parse_flight')
 	info = {}
 	defaultdate = global_info['emailTime']
+	logf.info('defaultdate(email) <- %s' % defaultdate)
 	for c, v in zip(columns, values):
 		logf.debug('parsing row: column %s: "%s"' % (c, v))
-		if c.lower() in ['departs', 'departure', 'departure city and time']:
+		if c.lower() in ['departs', 'departure', 'departure city and time', 'from', 'salida']:
 			logf.debug('parsing departure: "%s"' % v)
 			for vi in parse_field(v):
 				logf.debug('parsing departure component: "%s"' % vi)
@@ -124,7 +134,7 @@ def parse_flight(columns, values, global_info):
 					# could be a location
 					logf.info('departure (location) <- %s' % shorten_airport(vi))
 					info['departure'] = shorten_airport(vi)
-		elif c.lower() in ['arrives', 'arrival', 'arrival city and time']:
+		elif c.lower() in ['arrives', 'arrival', 'arrival city and time', 'to', 'llegada']:
 			logf.debug('parsing arrival: "%s"' % v)
 			for vi in parse_field(v):
 				logf.debug('parsing arrival component: "%s"' % vi)
@@ -138,10 +148,10 @@ def parse_flight(columns, values, global_info):
 					logf.info('arrival (location) <- %s' % shorten_airport(vi))
 					info['arrival'] = shorten_airport(vi)
 		elif c.lower() in ['day, date']:
-			day = HTMLParser().unescape(v.text)
+			day = nicefy_htmltext(v.text)
 			logf.debug('parsing day "%s"' % day)
 			try:
-				defaultdate = parsedate_cached(day)
+				defaultdate = parsedate_cached(day, default=defaultdate)
 				logf.info('defaultdate <- %s' % defaultdate)
 			except ValueError as e:
 				try:
@@ -150,8 +160,12 @@ def parse_flight(columns, values, global_info):
 				except ValueError as e:
 					logf.warn('failed to parse day "%s"' % day[:100])
 					pass
-		elif c.lower() in ['flight']:
-			flight = v.text.strip()
+		elif c.lower() in ['flight', 'flights', 'vuelo \xe2\x84\x96']:
+			flight = nicefy_htmltext(v.text.strip())
+			#if flight.startswith('Seat'):
+			#	logf.info('airplaneSeat <- "%s"' % flight)
+			#	info['airplaneSeat'] = flight
+			#else:
 			logf.info('flightNumber <- "%s"' % flight)
 			info['flightNumber'] = flight
 			for k in 'operado por', 'operated by':
@@ -176,6 +190,7 @@ def parse_flight(columns, values, global_info):
 				info['airline'] = airline.strip()
 		else:
 			logf.debug('unhandled column "%s" with content: "%s"' % (c, v.text))
+		
 	if len(info) > 0:
 		logf.info('learned flight info: %s' % info)
 	
@@ -192,6 +207,8 @@ def parse_flight(columns, values, global_info):
 
 def is_flight(info):
 	required_keys = ['departureTime', 'departure', 'arrivalTime', 'arrival']
+	logf = logging.getLogger('emailparser.is_flight')
+	logf.info('checking if is a flight: %s' % info)
 	if not all([k in info and info[k] != '' for k in required_keys]):
 		return False
 	for k in 'departure', 'arrival':
@@ -201,7 +218,14 @@ def is_flight(info):
 			return False
 		if len(info[k].split()) > 5:
 			return False
+	logf.info('yes, is a flight: %s' % info)
 	return True
+
+def replace_booking_number(info, key, number):
+	if key not in info or info[key] == number:
+		info[key] = number
+		return
+	info[key] = info[key] + ', ' + number
 
 def parse_flight_info(columns, values):
 	global_info = {}
@@ -209,17 +233,21 @@ def parse_flight_info(columns, values):
 	logf.debug('parsing row: %s %s' % (columns, [str(v)[:200] for v in values]))
 	for c, v in zip(columns, values):
 		number = v.text
-		if c.lower() in ['eticket number', 'flight confirmation number', 'airline booking number', 'reservation number', 'código de reserva', 'buchungsnummer']:
+		if c.lower() in ['eticket number', 'flight confirmation number', 'airline booking number', 'reservation number', 'código de reserva', 'código de reservación', 'buchungsnummer', 'pnr #']:
+			logf.info('found ticketNumber key "%s" -> %s' % (c, number))
 			if is_airline_booking_number(number):
-				global_info['ticketNumber'] = number
+				replace_booking_number(global_info, 'ticketNumber', number)
 				logf.info('ticketNumber <- %s' % number)
 	for c, v in zip(columns, values):
-		if c.lower() in ['eticket number', 'booking id', 'booking number']:
+		if c.lower() in ['eticket number', 'booking id', 'booking number', 'e-ticket #', ]:
 			number = v.text
+			logf.info('found booking number key "%s" -> %s' % (c, number))
 			if is_ticket_number(number) and 'bookingNumber' not in global_info:
+				replace_booking_number(global_info, 'bookingNumber', number)
 				global_info['bookingNumber'] = number
 				logf.info('bookingNumber <- %s' % number)
 			if is_airline_booking_number(number) and 'ticketNumber' not in global_info:
+				replace_booking_number(global_info, 'ticketNumber', number)
 				global_info['ticketNumber'] = number
 				logf.info('ticketNumber <- %s' % number)
 		if c.lower() in ['seats']:
@@ -351,7 +379,7 @@ def parse_email_message(m):
 						# build header column
 						newheader = []
 						for th in row.findChildren('th'):
-							newheader.append(th.text.strip().strip(':'))
+							newheader.append(nicefy_htmltext(th.text.strip().strip(':')))
 							override_header = True
 						if len(newheader) == 0:
 							for td in row.findChildren('td'):
@@ -360,7 +388,7 @@ def parse_email_message(m):
 								if any([c.name in header_names 
 									for c in td.recursiveChildGenerator() if hasattr(c, 'name')]):
 									override_header = True
-								newheader.append(td.text.strip().strip(':'))
+								newheader.append(nicefy_htmltext(td.text.strip().strip(':')))
 						if len(newheader) == 1 or all([len(h) > 100 for h in newheader]):
 							newheader = []
 						if override_header:
@@ -418,11 +446,11 @@ def parse_email_message(m):
 						else:
 							cell = cellheaders[0].text.strip()
 						if len(cells) > 0 and cell.endswith(':'):
-							key = cell.rstrip(':')
+							key = cell.rstrip(':').strip()
 							for v in cells:
 								if len(v.text) > 0 and len(v.text) < 100:
 									logf.info('learned fact: %s = %s' % (key, v.text))
-									header.append(key)
+									header.append(nicefy_htmltext(key))
 									values.append(v)
 						elif ' to ' in cell and len(cell) < 150 and '.' not in cell and ' you ' not in cell  and ' do ' not in cell:
 							parts = cell.split(' to ')
@@ -433,10 +461,25 @@ def parse_email_message(m):
 								info['arrival'] = arrival
 							else:
 								logf.info('strange from-to: %s' % cell)
-					
+						elif ':' in cell and len(cell) < 150 and '.' not in cell and ' you ' not in cell  and ' do ' not in cell:
+							parts = cell.split(':')
+							if len(parts) == 2:
+								key, v = parts
+								key, v = key.strip(), v.strip()
+								v = BeautifulSoup.BeautifulSoup(v)
+								logf.info('learned fact: %s = %s' % (key, v))
+								header.append(nicefy_htmltext(key))
+								values.append(v)
+							else:
+								logf.info('strange fact: %s' % cell)
+							
+							
 					#for k, v in items:
 					#	logf.info('learned following fact: %s = %s' % (k, v))
+					logf.info('finding global info %s -> %s' % (header, [v.text for v in values]))
+					global_info.update(parse_flight_info(header, values))
 					info.update(global_info)
+					logf.info('finding flight info %s -> %s' % (header, [v.text for v in values]))
 					info = parse_flight(header, values, info)
 					if is_flight(info):
 						if info not in reservations:
@@ -448,93 +491,6 @@ def parse_email_message(m):
 		else:
 			logf.debug('message: other content type: %s' % mp.get_content_type())
 	return reservations
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
