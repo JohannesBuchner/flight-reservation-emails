@@ -70,21 +70,19 @@ def shorten_airport(name):
 		return name
 	return part
 
-def parsedate(s, default=None):
+def parsedate_simple(s):
+	logf = logging.getLogger('emailparser.parsedate')
+	logf.info('simple date parsing "%s"...' % s)
+	return dateutil.parser.parse(s)
+def parsedate(s, default, languages=None):
 	logf = logging.getLogger('emailparser.parsedate')
 	logf.info('date parsing "%s"...' % s)
 	try:
-		if default is None:
-			return dateutil.parser.parse(s)
-		else:
-			return dateutil.parser.parse(s, default=default.replace(second=0, minute=0, hour=0))
+		return dateutil.parser.parse(s, default=default.replace(second=0, minute=0, hour=0))
 	except ValueError as e:
-		if default is None:
-			r = dateparser.parse(s)
-		else:
-			r = dateparser.parse(s, settings=
-				dateparser.conf.Settings().replace(
-				RELATIVE_BASE=default.replace(second=0, minute=0, hour=0)))
+		r = dateparser.parse(s, languages=languages, settings=
+			dateparser.conf.Settings().replace(
+			RELATIVE_BASE=default.replace(second=0, minute=0, hour=0)))
 		if r is None:
 			raise e
 		else:
@@ -92,7 +90,7 @@ def parsedate(s, default=None):
 
 previous_dates = {}
 
-def parsedate_cached(s, default=None):
+def parsedate_cached(s, default=None, languages=None):
 	s = s.replace('\n', ' ').replace('\t', ' ').replace('      ', ' ').replace('  ', ' ').replace('  ', ' ')
 	if len(s) > 50:
 		raise ValueError('too long for a date')
@@ -103,7 +101,7 @@ def parsedate_cached(s, default=None):
 	k = (s, default)
 	if k not in previous_dates:
 		try:
-			d = parsedate(s, default=default)
+			d = parsedate(s, default=default, languages=languages)
 			previous_dates[k] = d
 		except OverflowError as e:
 			previous_dates[k] = None
@@ -114,7 +112,7 @@ def parsedate_cached(s, default=None):
 	else:
 		return previous_dates[k]
 
-def parse_flight(columns, values, global_info):
+def parse_flight(columns, values, global_info, languages=None):
 	logf = logging.getLogger('emailparser.parse_flight')
 	info = {}
 	defaultdate = global_info['emailTime']
@@ -127,7 +125,7 @@ def parse_flight(columns, values, global_info):
 				logf.debug('parsing departure component: "%s"' % vi)
 				# try to parse as time
 				try:
-					time = parsedate_cached(vi, default=defaultdate)
+					time = parsedate_cached(vi, default=defaultdate, languages=languages)
 					logf.info('departureTime <- %s' % time)
 					info['departureTime'] = time
 				except ValueError:
@@ -140,7 +138,7 @@ def parse_flight(columns, values, global_info):
 				logf.debug('parsing arrival component: "%s"' % vi)
 				# try to parse as time
 				try:
-					time = parsedate_cached(vi, default=defaultdate)
+					time = parsedate_cached(vi, default=defaultdate, languages=languages)
 					logf.info('arrivalTime <- %s' % time)
 					info['arrivalTime'] = time
 				except ValueError:
@@ -151,7 +149,7 @@ def parse_flight(columns, values, global_info):
 			day = nicefy_htmltext(v.text)
 			logf.debug('parsing day "%s"' % day)
 			try:
-				defaultdate = parsedate_cached(day, default=defaultdate)
+				defaultdate = parsedate_cached(day, default=defaultdate, languages=languages)
 				logf.info('defaultdate <- %s' % defaultdate)
 			except ValueError as e:
 				try:
@@ -304,12 +302,12 @@ def parse_email_message(m):
 						airline = get_name(fl, 'airline', 'http://schema.org/Airline', ''),
 						operator = get_name(fl, 'operatedBy', 'http://schema.org/Airline', ''),
 						departure = get_code(fl, 'departureAirport', 'http://schema.org/Airport', ''),
-						boardingTime = get_value(fl, 'meta', 'boardingTime', ''),
-						departureTime = get_value(fl, 'meta', 'departureTime', ''),
+						boardingTime = parsedate_simple(get_value(fl, 'meta', 'boardingTime', '')),
+						departureTime = parsedate_simple(get_value(fl, 'meta', 'departureTime', '')),
 						departureGate = get_value(fl, 'meta', 'departureGate', ''),
 						departureTerminal = get_value(fl, 'meta', 'departureTerminal', ''),
 						arrival = get_code(fl, 'arrivalAirport', 'http://schema.org/Airport', ''),
-						arrivalTime = get_value(fl, 'meta', 'arrivalTime', ''),
+						arrivalTime = parsedate_simple(get_value(fl, 'meta', 'arrivalTime', '')),
 						arrivalGate = get_value(fl, 'meta', 'arrivalGate', ''),
 						arrivalTerminal = get_value(fl, 'meta', 'arrivalTerminal', '')
 					)
@@ -330,9 +328,11 @@ def parse_email_message(m):
 				global_info['emailSubject'] = m.get_header('Subject')
 				txt = b.text
 				txtlower = txt.lower()
-				for key in 'flight confirmation number', 'airline booking number', 'confirmation', 'digo de reserva':
+				languages = None
+				for key, languages1 in ('flight confirmation number', ['en']), ('airline booking number', ['en']), ('confirmation', ['en']), ('digo de reserva', ['es']):
 					if key in txtlower:
 						logf.debug('found key: "%s"' % key)
+						languages = languages1
 						try:
 							i = txtlower.index(key) + len(key)
 							for number in txt[i:i+1000].split(':')[1:4:2]:
@@ -343,8 +343,9 @@ def parse_email_message(m):
 									logf.info('ticketNumber <- "%s"' % number)
 						except Exception as e:
 							logf.warn('parsing %s failed: %s' % (key, e))
-				for key in 'booking id', 'booking number', 'buchungsnummer':
+				for key, languages1 in ('booking id', ['en']), ('booking number', ['en']), ('buchungsnummer', 'de'):
 					if key in txtlower:
+						languages = languages1
 						logf.debug('found key: "%s"' % key)
 						try:
 							i = txtlower.index(key) + len(key)
@@ -364,7 +365,18 @@ def parse_email_message(m):
 								logf.info('ticketNumber <- "%s"' % number)
 						except Exception as e:
 							logf.warn('parsing %s failed: %s' % (key, e))
-				
+				if languages is None:
+					if any([v in txtlower for v in 'confirmacion', 'itinerario', 'viaje']):
+						languages = ['es']
+						logf.info('language detected: es')
+					if any([v in txtlower for v in 'buchung', 'rechnung', 'flugzeug', 'stunden', 'danke', 'vielen dank']):
+						languages = ['de']
+						logf.info('language detected: de')
+					if any([v in txtlower for v in 'passenger information', 'traveler information', 'departs', 'arrives', 'reconfirm', 'payment', 'itinerary', 'receipt', 'confirmation', 'thank you']):
+						logf.info('language detected: en')
+						languages = ['en']
+				if languages is None:
+					logf.warn('language unsure')
 				for table in b.findAll('table'):
 					# make dictionaries for vertical tables
 					header = []
@@ -406,7 +418,7 @@ def parse_email_message(m):
 							values.append(td)
 						
 						if len(header) > 0:
-							info = parse_flight(header, values, global_info)
+							info = parse_flight(header, values, global_info, languages=languages)
 							if is_flight(info):
 								if info not in reservations:
 									reservations.append(info)
@@ -424,7 +436,7 @@ def parse_email_message(m):
 							# could be this information:
 							logf.info('no header, trying something with "%s"' % values)
 							testheader = ['Day, date', 'Departure', 'Arrival', 'Flight']
-							info = parse_flight(testheader, values, global_info)
+							info = parse_flight(testheader, values, global_info, languages=languages)
 							if is_flight(info):
 								if info not in reservations:
 									reservations.append(info)
@@ -480,7 +492,7 @@ def parse_email_message(m):
 					global_info.update(parse_flight_info(header, values))
 					info.update(global_info)
 					logf.info('finding flight info %s -> %s' % (header, [v.text for v in values]))
-					info = parse_flight(header, values, info)
+					info = parse_flight(header, values, info, languages=languages)
 					if is_flight(info):
 						if info not in reservations:
 							reservations.append(info)

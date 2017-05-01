@@ -40,17 +40,18 @@ logging.getLogger().addHandler(consoleHandler)
 
 db = notmuch.Database()
 query = db.create_query('schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion')
+#query = db.create_query('schema.org/FlightReservation OR unitedairlines')
 
 all_reservations = []
 
 for m in query.search_messages():
 	all_reservations += emailparser.parse_email_message(m)
 
-def dateConverter(dateText):
-	day = dateutil.parser.parse(dateText)
+def dateConverter(day):
+	#day = dateutil.parser.parse(dateText)
 	if day.tzinfo is not None:
 		return day
-	print 'Warning: Using local time zone to order %s' % dateText
+	print 'Warning: Using local time zone to order %s' % day
 	local_tz = get_localzone()
 	return day.replace(tzinfo=local_tz)
 	#pytz.utc.localize(day, local)
@@ -76,23 +77,35 @@ for info in all_reservations:
 	prepend(info, 'arrivalGate', 'Gate ')
 	prepend(info, 'arrivalTerminal', 'Terminal ')
 	prepend(info, 'departureTerminal', 'Terminal ')
-	prepend(info, 'boardingTime', 'Boarding ')
 	prepend(info, 'ticketNumber', 'Ticket#')
 	prepend(info, 'operator', ' operated by ')
+	flightday = info['departureTime'].date()
+	for datekey in ['departureTime', 'arrivalTime', 'boardingTime']:
+		if info[datekey] != '':
+			info[datekey + 'str'] = info[datekey].strftime('%Y-%m-%d %H:%M')
+		else:
+			info[datekey + 'str'] = ''
+	prepend(info, 'boardingTimestr', 'Boarding ')
 	
-	flightday = dateutil.parser.parse(info['departureTime']).date()
-	if previous is not None and (flightday - previous).days > 14:
-		print '=============', (flightday - previous).days, 'days later'
+	if previous is not None:
+		delta = (flightday - previous).days
+		if delta > 14:
+			print '=============', delta, 'days later'
+			fout.write("""
+<tr>
+<td colspan="3" class="gaplater">%d days later
+</tr>
+			""" % delta)
 	previous = flightday
-	info['departureDay'] = flightday.strftime('YYYY-MM-DD HH:MM')
-	info['departureJustTime'] = dateutil.parser.parse(info['departureTime']).strftime('%H:%M')
-	info['emailday'] = info['emailTime'].date().strftime('YYYY-MM-DD HH:MM')
+	info['departureDay'] = flightday.strftime('%Y-%m-%d')
+	info['departureJustTime'] = info['departureTime'].strftime('%H:%M')
+	info['emailday'] = info['emailTime'].date().strftime('%Y-%m-%d')
 	print """
 %(departureDay)s Flight %(departure)s --> %(arrival)s
 
-Departing %(departureTime)s %(boardingTime)s
+Departing %(departureTimestr)s %(boardingTime)s
 from %(departure)s %(departureTerminal)s %(departureGate)s
-arriving %(arrivalTime)s
+arriving %(arrivalTimestr)s
 To   %(arrival)s %(arrivalTerminal)s %(arrivalGate)s
 Flight number %(flightNumber)s with %(airline)s%(operator)s
 %(ticketNumber)s %(ticketText)s %(ticketDownload)s %(ticketPrint)s
@@ -127,7 +140,7 @@ Email %(emailday)s "%(emailSubject)s"
 <tr>
 <td colspan="3" class="details">
 <h5>Arriving</h5>
-%(arrivalTime)s
+%(arrivalTimestr)s
 <h5>Flight number</h5>
 Flight number %(flightNumber)s with %(airline)s%(operator)s
 <h5>Ticket</h5>
