@@ -18,13 +18,13 @@ consoleHandler.setLevel(logging.WARN)
 logging.getLogger().addHandler(consoleHandler)
 
 if len(sys.argv) < 3:
-	sys.stderr.write("""SYNOPSIS: %(exe)s <database> <query>
+	sys.stderr.write("""SYNOPSIS: %(exe)s <query>
 
 database: absolute path to notmuch database
 query: query to use. Has to be in quotes.
 
 Example usage:
-%(exe)s $PWD/test/ 'schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion'
+%(exe)s 'schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion'
 
 To speed up date parsing, you can specify the languages to consider with the 
 LANGUAGES environment variable:
@@ -33,8 +33,8 @@ LANGUAGES="en de es" <cmd>
 Author: Johannes Buchner (c) 2017
 """ % dict(exe=sys.argv[0]))
 	sys.exit(1)
-db = notmuch.Database(sys.argv[1])
-query = sys.argv[2]
+db = notmuch.Database()
+query = sys.argv[1]
 query = db.create_query(query)
 #'schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion')
 languages = os.environ.get('LANGUAGES', None)

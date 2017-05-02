@@ -64,7 +64,7 @@ def parse_field(v):
 	return vs
 
 def shorten_airport(name):
-	name = nicefy_htmltext(name)
+	name = nicefy_htmltext(name).strip('#')
 	if len(name) < 8:
 		return name
 	if '(' not in name:
@@ -233,7 +233,8 @@ def is_airport(v):
 		return False
 	if v.startswith('('):
 		return False
-	if ':' in v or '@' in v or v.startswith('/'):
+	invalid_symbols = ':@#'
+	if any(s in v for s in invalid_symbols) or v.startswith('/'):
 		return False
 	return True
 
@@ -242,7 +243,8 @@ stopwords = ['estimated', 'total',
 	'passengers', 'right column',
 	'foreign affairs', 'security', 'book now', 'see deal', 
 	'enjoy', 'experience', 'entertainment', 'footer', 'awards', '®',
-	'twitter', ' your ', 'requires', 'approval'
+	'twitter', ' your ', 'requires', 'approval', 'www',
+	'@', '#',
 ] + ['january', 'february', 'march', 'april', 'july', 'august', 'september', 'october', 'november', 'december']
 
 def is_flight(info):
