@@ -41,9 +41,8 @@ logging.getLogger().addHandler(consoleHandler)
 db = notmuch.Database()
 query = db.create_query('schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion')
 languages = None
-query = db.create_query('schema.org/FlightReservation OR eticket OR flight')
+#query = db.create_query('schema.org/FlightReservation OR eticket OR flight')
 languages = ['en']
-#query = db.create_query('schema.org/FlightReservation')
 
 all_reservations = emailparser.parse_multiple_email_messages(query.search_messages(), languages=languages)
 #all_reservations = []

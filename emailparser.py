@@ -5,11 +5,18 @@ import BeautifulSoup
 import datetime
 import dateutil.parser
 import dateparser
+
 import logging
 from tzlocal import get_localzone
+
+# this makes everything utf8
 import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
+
+# this disables relative dates
+import dateparser.date
+dateparser.date._DateLanguageParser._try_freshness_parser = lambda self: False
 
 def get_value(reservation, element, itemprop, default):
 	node = reservation.find(element, itemprop=itemprop)
@@ -39,7 +46,7 @@ h = HTMLParser()
 
 def nicefy_htmltext(txt):
 	el = h.unescape(txt.strip())
-	el = el.replace('\n', ' ').replace('\t', ' ').replace('    ', ' ').replace('  ', ' ').replace('  ', ' ').strip()
+	el = el.strip('.').replace('\n', ' ').replace('\t', ' ').replace('    ', ' ').replace('  ', ' ').replace('  ', ' ').strip()
 	return el
 
 def parse_field(v):
@@ -92,7 +99,7 @@ def parsedate(s, default, languages=None):
 
 previous_dates = {}
 
-def parsedate_cached(s, default=None, languages=None):
+def parsedate_cached(s, default, languages=None):
 	logf = logging.getLogger('emailparser.parsedate_cached')
 	s = s.replace('\n', ' ').replace('\t', ' ').replace('      ', ' ').replace('  ', ' ').replace('  ', ' ')
 	if len(s) > 50:
@@ -134,8 +141,9 @@ def parse_flight(columns, values, global_info, languages=None):
 				# try to parse as time
 				try:
 					time = parsedate_cached(vi, default=defaultdate, languages=languages)
-					logf.info('departureTime <- %s' % time)
-					info['departureTime'] = time
+					if time.hour != 0 or time.minute != 0:
+						logf.info('departureTime <- %s' % time)
+						info['departureTime'] = time
 				except ValueError as e:
 					# could be a location
 					v = shorten_airport(vi)
@@ -149,8 +157,9 @@ def parse_flight(columns, values, global_info, languages=None):
 				# try to parse as time
 				try:
 					time = parsedate_cached(vi, default=defaultdate, languages=languages)
-					logf.info('arrivalTime <- %s' % time)
-					info['arrivalTime'] = time
+					if time.hour != 0 or time.minute != 0:
+						logf.info('arrivalTime <- %s' % time)
+						info['arrivalTime'] = time
 				except ValueError as e:
 					# could be a location
 					v = shorten_airport(vi)
@@ -193,8 +202,8 @@ def parse_flight(columns, values, global_info, languages=None):
 			try:
 				airline, flightNumber = airline.split('#')
 				logf.info('airline <- "%s"' % airline.strip())
-				logf.info('flightNumber <- "%s"' % flightNumber.strip())
 				info['airline'] = airline.strip()
+				logf.info('flightNumber <- "%s"' % flightNumber.strip())
 				info['flightNumber'] = flightNumber.strip()
 			except:
 				logf.info('airline <- "%s"' % airline.strip())
@@ -216,13 +225,25 @@ def parse_flight(columns, values, global_info, languages=None):
 	return info
 
 def is_airport(v):
+	if len(v) < 3:
+		return False
 	if any([n in v for n in '0123456789']):
 		return False
 	if len(v.split()) > 5:
 		return False
 	if v.startswith('('):
 		return False
+	if ':' in v or '@' in v or v.startswith('/'):
+		return False
 	return True
+
+stopwords = ['estimated', 'total', 
+	'cabin: ', 'take this survey', 'callout panel', 'award miles', 
+	'passengers', 'right column',
+	'foreign affairs', 'security', 'book now', 'see deal', 
+	'enjoy', 'experience', 'entertainment', 'footer', 'awards', '®',
+	'twitter', ' your ', 'requires', 'approval'
+] + ['january', 'february', 'march', 'april', 'july', 'august', 'september', 'october', 'november', 'december']
 
 def is_flight(info):
 	required_keys = ['departureTime', 'departure', 'arrivalTime', 'arrival']
@@ -231,7 +252,10 @@ def is_flight(info):
 	if not all([k in info and info[k] != '' for k in required_keys]):
 		return False
 	for k in 'departure', 'arrival':
-		if info[k] in ['Manage Flight', 'Airport Lounges']:
+		v = info[k].lower()
+		if v in ['manage flight', 'airport Lounges', 'total estimated cost', 'here']:
+			return False
+		if any([stopword in v for stopword in stopwords]):
 			return False
 	#	if not is_airport(info[k]):
 	#		return False
@@ -256,7 +280,7 @@ def parse_flight_info(columns, values):
 				replace_booking_number(global_info, 'ticketNumber', number)
 				logf.info('ticketNumber <- %s' % number)
 	for c, v in zip(columns, values):
-		if c.lower() in ['eticket number', 'booking id', 'booking number', 'e-ticket #', ]:
+		if c.lower() in ['eticket number', 'booking id', 'booking number', 'e-ticket #']:
 			number = v.text
 			logf.info('found booking number key "%s" -> %s' % (c, number))
 			if is_ticket_number(number) and 'bookingNumber' not in global_info:
