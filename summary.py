@@ -7,29 +7,8 @@ import dateutil.parser
 import emailparser
 import logging
 from tzlocal import get_localzone
-
-def get_value(reservation, element, itemprop, default):
-	node = reservation.find(element, itemprop=itemprop)
-	if node is None:
-		return default
-	else:
-		attrs = dict(node.attrs)
-		if element == 'link':
-			return attrs.get('href', default)
-		elif element == 'meta':
-			return attrs.get('content', default)
-def get_name(parent, itemprop, itemtype, default, childitemprop='name'):
-	node = parent.find('div', itemprop=itemprop, itemtype=itemtype)
-	if node is None: 
-		return default
-	return get_value(node, 'meta', childitemprop, default)
-
-def get_code(parent, itemprop, itemtype, default):
-	return get_name(parent, itemprop, itemtype, default, childitemprop='iataCode')
-
-def prepend(info, k, prefix):
-	if info[k] and info[k] != '':
-		info[k] = prefix + info[k]
+import sys
+import os
 
 logging.basicConfig(filename='emailparser.log',level=logging.DEBUG)
 logFormatter = logging.Formatter("[%(name)s %(levelname)s]: %(message)s")
@@ -38,11 +17,32 @@ consoleHandler.setFormatter(logFormatter)
 consoleHandler.setLevel(logging.WARN)
 logging.getLogger().addHandler(consoleHandler)
 
-db = notmuch.Database()
-query = db.create_query('schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion')
-languages = None
+if len(sys.argv) < 3:
+	sys.stderr.write("""SYNOPSIS: %(exe)s <database> <query>
+
+database: absolute path to notmuch database
+query: query to use. Has to be in quotes.
+
+Example usage:
+%(exe)s $PWD/test/ 'schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion'
+
+To speed up date parsing, you can specify the languages to consider with the 
+LANGUAGES environment variable:
+LANGUAGES="en de es" <cmd>
+
+Author: Johannes Buchner (c) 2017
+""" % dict(exe=sys.argv[0]))
+	sys.exit(1)
+db = notmuch.Database(sys.argv[1])
+query = sys.argv[2]
+query = db.create_query(query)
+#'schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion')
+languages = os.environ.get('LANGUAGES', None)
+if languages is not None:
+	languages = languages.split()
 #query = db.create_query('schema.org/FlightReservation OR eticket OR flight')
-languages = ['en']
+#languages = ['en']
+#query = db.create_query('schema.org/FlightReservation')
 
 all_reservations = emailparser.parse_multiple_email_messages(query.search_messages(), languages=languages)
 #all_reservations = []
@@ -55,6 +55,10 @@ all_reservations = emailparser.parse_multiple_email_messages(query.search_messag
 #	all_reservations += reservations
 print('got %d reservations' % len(all_reservations))
 
+def prepend(info, k, prefix):
+	if info[k] and info[k] != '':
+		info[k] = prefix + info[k]
+
 def dateConverter(day):
 	#day = dateutil.parser.parse(dateText)
 	if day.tzinfo is not None:
@@ -62,7 +66,6 @@ def dateConverter(day):
 	print 'Warning: Using local time zone to order %s' % day
 	local_tz = get_localzone()
 	return day.replace(tzinfo=local_tz)
-	#pytz.utc.localize(day, local)
 
 # sort by departure time
 all_reservations.sort(key=lambda info: dateConverter(info['departureTime']))
@@ -80,6 +83,7 @@ fout.write("""<!doctype html><html lang="en">
 <table>
 """)
 
+file_id = 1
 for info in all_reservations:
 	prepend(info, 'departureGate', 'Gate ')
 	prepend(info, 'arrivalGate', 'Gate ')
@@ -90,19 +94,37 @@ for info in all_reservations:
 	flightday = info['departureTime'].date()
 	prepend(info, 'boardingTimestr', 'Boarding ')
 	
-	if previous is not None:
+	filenames = []
+	msg_id = info['emailId']
+	for m in db.create_query('id:%s' % msg_id).search_messages():
+		for mp in m.get_message_parts():
+			if mp.get_content_type() == 'application/pdf' or (mp.get_content_type() == 'application/octet-stream' and mp.get_filename().lower().endswith('.pdf')):
+				filename = 'file_id%d.pdf' % file_id
+				with open(filename, 'w') as f:
+					f.write(mp.get_payload(decode=True))
+				filenames.append((mp.get_filename(), filename))
+				file_id += 1
+	info['pdffiles'] = ' | '.join(['<a class="pdffile" href="%s">%s</a>' % (filename, origfilename) for (origfilename, filename) in filenames])
+	
+	if previous is not None and (flightday - previous).days > 14:
 		delta = (flightday - previous).days
-		if delta > 14:
-			print '=============', delta, 'days later'
-			fout.write("""
+		print '=============', delta, 'days later'
+		fout.write("""
 <tr>
 <td colspan="3" class="gaplater">%d days later
 </tr>
-			""" % delta)
+		""" % delta)
+	else:
+		fout.write("""
+<tr>
+<td colspan="3" class="gap">&nbsp;
+</tr>
+		""")
 	previous = flightday
 	info['departureDay'] = flightday.strftime('%Y-%m-%d')
 	info['departureJustTime'] = info['departureTime'].strftime('%H:%M')
 	info['emailday'] = info['emailTime'].date().strftime('%Y-%m-%d')
+	
 	print """
 %(departureDay)s Flight %(departure)s --> %(arrival)s
 
@@ -149,6 +171,7 @@ Flight number %(flightNumber)s with %(airline)s%(operator)s
 <h5>Ticket</h5>
 %(ticketNumber)s %(ticketText)s %(ticketDownload)s %(ticketPrint)s
 <div>%(boardingTime)s</div>
+<div>%(pdffiles)s</div>
 </td>
 </tr>
 <tr>
@@ -156,10 +179,5 @@ Flight number %(flightNumber)s with %(airline)s%(operator)s
 <h5>Email</h5>
 %(emailday)s "%(emailSubject)s"
 </td>
-<tr>
-<td colspan="3" class="gap">&nbsp;
-</tr>
-
-
 	""" % info).encode('utf-8'))
 		

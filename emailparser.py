@@ -178,7 +178,7 @@ def parse_flight(columns, values, global_info, languages=None):
 						defaultdate = datetime.datetime.strptime(day, '%a, %d%b%y')
 						logf.info('defaultdate <- %s' % defaultdate)
 					except ValueError as e:
-						logf.warn('failed to parse as day "%s" (%s)' % (day[:100], e))
+						logf.debug('failed to parse as day "%s" (%s)' % (day[:100], e))
 						pass
 		elif c.lower() in ['flight', 'flights', 'vuelo \xe2\x84\x96']:
 			flight = nicefy_htmltext(v.text.strip())
@@ -382,7 +382,7 @@ def parse_email_html_message(t, languages = None, email_info={}):
 							logf.info('ticketNumber <- "%s"' % number)
 				except Exception as e:
 					logf.warn('parsing %s failed: %s' % (key, e))
-		for key, languages1 in ('booking id', ['en']), ('booking number', ['en']), ('buchungsnummer', 'de'):
+		for key, languages1 in ('booking id', ['en']), ('booking number', ['en']), ('buchungsnummer', ['de']):
 			if key in txtlower:
 				languages = languages1
 				logf.debug('found key: "%s"' % key)
@@ -575,6 +575,7 @@ def parse_multiple_email_messages(query_results, languages=None):
 		email_info = {}
 		email_info['emailTime'] = datetime.datetime.fromtimestamp(m.get_date())
 		email_info['emailSubject'] = m.get_header('Subject')
+		email_info['emailId'] = m.get_message_id()
 		for mp in m.get_message_parts():
 			t = mp.get_payload(decode=True)
 			if mp.get_content_type() == 'text/html':
