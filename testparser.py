@@ -20,9 +20,9 @@ if __name__ == '__main__':
 			txt += """
 Flight %(departure)s --> %(arrival)s
 
-Departing %(departureTime)s %(boardingTime)s
+Departing %(departureTimestr)s %(boardingTime)s
 from %(departure)s %(departureTerminal)s %(departureGate)s
-arriving %(arrivalTime)s
+arriving %(arrivalTimestr)s
 To   %(arrival)s %(arrivalTerminal)s %(arrivalGate)s
 Flight number %(flightNumber)s with %(airline)s%(operator)s
 %(ticketNumber)s %(ticketText)s %(ticketDownload)s %(ticketPrint)s
@@ -46,6 +46,7 @@ Flight number %(flightNumber)s with %(airline)s%(operator)s
 				print test
 				print "actual:", os.path.join(dbpath, 'parsed', f)
 				print txt
+				print 'to compare: meld %s %s' % (ftest, os.path.join(dbpath, 'parsed', f))
 				break
 			else:
 				print "result for %s" % f

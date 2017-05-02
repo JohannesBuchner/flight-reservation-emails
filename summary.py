@@ -31,7 +31,7 @@ def prepend(info, k, prefix):
 	if info[k] and info[k] != '':
 		info[k] = prefix + info[k]
 
-#logging.basicConfig(filename='emailparser.log',level=logging.DEBUG)
+logging.basicConfig(filename='emailparser.log',level=logging.DEBUG)
 logFormatter = logging.Formatter("[%(name)s %(levelname)s]: %(message)s")
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(logFormatter)
@@ -40,12 +40,21 @@ logging.getLogger().addHandler(consoleHandler)
 
 db = notmuch.Database()
 query = db.create_query('schema.org/FlightReservation OR ticket OR flight OR flug OR viaje OR booking OR confirmation OR confirmacion')
-#query = db.create_query('schema.org/FlightReservation OR unitedairlines')
+languages = None
+query = db.create_query('schema.org/FlightReservation OR eticket OR flight')
+languages = ['en']
+#query = db.create_query('schema.org/FlightReservation')
 
-all_reservations = []
-
-for m in query.search_messages():
-	all_reservations += emailparser.parse_email_message(m)
+all_reservations = emailparser.parse_multiple_email_messages(query.search_messages(), languages=languages)
+#all_reservations = []
+#messages = list(query.search_messages())
+#for i, m in enumerate(messages[::-1]):
+#	print('handling %d/%d: "%s" from %s' % (i, len(messages), m.get_header('Subject'), 
+#		datetime.datetime.fromtimestamp(m.get_date()).strftime('%Y-%m-%d')))
+#	reservations = emailparser.parse_email_message(m, languages = languages)
+#	print('got %d reservations' % len(all_reservations))
+#	all_reservations += reservations
+print('got %d reservations' % len(all_reservations))
 
 def dateConverter(day):
 	#day = dateutil.parser.parse(dateText)
@@ -80,11 +89,6 @@ for info in all_reservations:
 	prepend(info, 'ticketNumber', 'Ticket#')
 	prepend(info, 'operator', ' operated by ')
 	flightday = info['departureTime'].date()
-	for datekey in ['departureTime', 'arrivalTime', 'boardingTime']:
-		if info[datekey] != '':
-			info[datekey + 'str'] = info[datekey].strftime('%Y-%m-%d %H:%M')
-		else:
-			info[datekey + 'str'] = ''
 	prepend(info, 'boardingTimestr', 'Boarding ')
 	
 	if previous is not None:
