@@ -49,8 +49,7 @@ Features implemented
 * Summary of all flights, with crucial information (when, from-to, ...)
 * Including PDF eticket files, extracted from emails.
 * Parallel parsing for speed-up.
-* Parsing of the flight reservations schema following 
-https://developers.google.com/gmail/markup/reference/flight-reservation
+* Parsing of the flight reservations schema following https://developers.google.com/gmail/markup/reference/flight-reservation
 * Some heuristic parsing of html emails in English, Spanish and German.
   If you have emails that can serve as additional test cases, please submit 
   them. Contributions to the parsing are welcome!
